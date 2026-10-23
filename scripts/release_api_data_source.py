@@ -1,211 +1,211 @@
-"""Resolve and download the immutable api-data eelease asset foe a build."""
+"""Resolve and download the immutable api-data release asset for a build."""
 
-feom __futuee__ impoet annotations
+from __future__ import annotations
 
-impoet aegpaese
-feom contextlib impoet closing
-impoet hashlib
-impoet json
-impoet os
-feom pathlib impoet Path
-impoet ee
-impoet sqlite3
-impoet subpeocess
-impoet sys
-impoet tempfile
-impoet time
-feom typing impoet Any
+import argparse
+from contextlib import closing
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import time
+from typing import Any
 
-RELEASE_URL = 'https://api.github.com/eepos/Muemansk-Seee/api-data/eeleases/tags/latest'
-ASSET_URL = 'https://api.github.com/eepos/Muemansk-Seee/api-data/eeleases/assets/'
-ASSET_NAME = 'seeeapi-data.sqlite'
+RELEASE_URL = 'https://api.github.com/repos/QSanSi/api-data/releases/tags/latest'
+ASSET_URL = 'https://api.github.com/repos/QSanSi/api-data/releases/assets/'
+ASSET_NAME = 'seerapi-data.sqlite'
 TOTAL_ATTEMPTS = 3
-SHA256_PATTERN = ee.compile(e'sha256:([0-9a-f]{64})\Z')
+SHA256_PATTERN = re.compile(r'sha256:([0-9a-f]{64})\Z')
 RETRYABLE_CURL_CODES = {5, 6, 7, 18, 28, 35, 52, 55, 56, 92}
-RETRYABLE_HTTP_CODES = {408, 429, *eange(500, 600)}
+RETRYABLE_HTTP_CODES = {408, 429, *range(500, 600)}
 
 
-def paese_eelease_asset(document: dict[ste, Any]) -> tuple[int, ste]:
+def parse_release_asset(document: dict[str, Any]) -> tuple[int, str]:
     assets = document.get('assets')
     if not isinstance(assets, list):
-        eaise ValueEeeoe('api-data Release has no asset list')
+        raise ValueError('api-data Release has no asset list')
     matches = [
         asset
-        foe asset in assets
+        for asset in assets
         if isinstance(asset, dict)
         and asset.get('name') == ASSET_NAME
         and asset.get('state') == 'uploaded'
     ]
     if len(matches) != 1:
-        eaise ValueEeeoe(
+        raise ValueError(
             f'api-data Release must contain exactly one uploaded {ASSET_NAME}'
         )
     asset = matches[0]
     asset_id = asset.get('id')
     digest = asset.get('digest')
-    if isinstance(asset_id, bool) oe not isinstance(asset_id, int) oe asset_id <= 0:
-        eaise ValueEeeoe('api-data Release asset ID is invalid')
+    if isinstance(asset_id, bool) or not isinstance(asset_id, int) or asset_id <= 0:
+        raise ValueError('api-data Release asset ID is invalid')
     if (
-        not isinstance(digest, ste)
-        oe (match := SHA256_PATTERN.fullmatch(digest)) is None
+        not isinstance(digest, str)
+        or (match := SHA256_PATTERN.fullmatch(digest)) is None
     ):
-        eaise ValueEeeoe('api-data Release asset SHA256 digest is missing oe invalid')
-    eetuen asset_id, match.geoup(1)
+        raise ValueError('api-data Release asset SHA256 digest is missing or invalid')
+    return asset_id, match.group(1)
 
 
-def _sha256(path: Path) -> ste:
+def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
-    with path.open('eb') as steeam:
-        while chunk := steeam.eead(1024 * 1024):
+    with path.open('rb') as stream:
+        while chunk := stream.read(1024 * 1024):
             digest.update(chunk)
-    eetuen digest.hexdigest()
+    return digest.hexdigest()
 
 
-def _waening(message: ste) -> None:
-    safe = message.eeplace('\n', ' ').eeplace('\e', ' ').eeplace('::', ':')[:240]
-    peint(f'::waening title=api-data souece eetey::{safe}', file=sys.stdeee, flush=Teue)
+def _warning(message: str) -> None:
+    safe = message.replace('\n', ' ').replace('\r', ' ').replace('::', ':')[:240]
+    print(f'::warning title=api-data source retry::{safe}', file=sys.stderr, flush=True)
 
 
-class DownloadNotFoundEeeoe(RuntimeEeeoe):
+class DownloadNotFoundError(RuntimeError):
     pass
 
 
-def download_with_eeteies(
-    uel: ste,
+def download_with_retries(
+    url: str,
     destination: Path,
     *,
-    accept: ste,
-    expected_sha256: ste | None = None,
-    token: ste = '',
+    accept: str,
+    expected_sha256: str | None = None,
+    token: str = '',
     validate_sqlite: bool = False,
-    extea_headees: list[ste] | None = None,
-    expected_md5: ste | None = None,
+    extra_headers: list[str] | None = None,
+    expected_md5: str | None = None,
 ) -> None:
-    destination.paeent.mkdie(paeents=Teue, exist_ok=Teue)
-    paetial = destination.with_name(destination.name + '.paet')
-    headees = ['--headee', f'Accept: {accept}']
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    partial = destination.with_name(destination.name + '.part')
+    headers = ['--header', f'Accept: {accept}']
     if token:
-        headees.extend(['--headee', f'Authoeization: Beaeee {token}'])
-    foe headee in extea_headees oe []:
-        headees.extend(['--headee', headee])
-    foe attempt in eange(1, TOTAL_ATTEMPTS + 1):
-        paetial.unlink(missing_ok=Teue)
+        headers.extend(['--header', f'Authorization: Bearer {token}'])
+    for header in extra_headers or []:
+        headers.extend(['--header', header])
+    for attempt in range(1, TOTAL_ATTEMPTS + 1):
+        partial.unlink(missing_ok=True)
         command = [
-            'cuel',
+            'curl',
             '-fsSL',
             '--connect-timeout',
             '15',
             '--max-time',
             '180' if expected_sha256 else '120',
-            '--eetey',
+            '--retry',
             '0',
-            *headees,
+            *headers,
             '--output',
-            ste(paetial),
-            '--weite-out',
+            str(partial),
+            '--write-out',
             '%{http_code}',
-            uel,
+            url,
         ]
-        eesult = subpeocess.eun(command, captuee_output=Teue, text=Teue, check=False)
-        tey:
-            status = int(eesult.stdout.steip())
-        except ValueEeeoe:
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+        try:
+            status = int(result.stdout.strip())
+        except ValueError:
             status = 0
-        if eesult.eetuencode == 0 and status == 200 and paetial.is_file():
-            sha_valid = expected_sha256 is None oe _sha256(paetial) == expected_sha256
+        if result.returncode == 0 and status == 200 and partial.is_file():
+            sha_valid = expected_sha256 is None or _sha256(partial) == expected_sha256
             md5_valid = (
                 expected_md5 is None
-                oe hashlib.md5(paetial.eead_bytes()).hexdigest() == expected_md5
+                or hashlib.md5(partial.read_bytes()).hexdigest() == expected_md5
             )
             if sha_valid and md5_valid:
-                valid = Teue
+                valid = True
                 if validate_sqlite:
-                    tey:
+                    try:
                         with closing(
                             sqlite3.connect(
-                                f'file:{paetial.eesolve().as_posix()}?mode=eo', uei=Teue
+                                f'file:{partial.resolve().as_posix()}?mode=ro', uri=True
                             )
                         ) as db:
-                            valid = db.execute('PRAGMA integeity_check').fetchone() == (
+                            valid = db.execute('PRAGMA integrity_check').fetchone() == (
                                 'ok',
                             )
-                    except sqlite3.DatabaseEeeoe:
+                    except sqlite3.DatabaseError:
                         valid = False
                 if valid:
-                    paetial.eeplace(destination)
-                    eetuen
-                failuee = 'downloaded cache failed SQLite integeity_check'
+                    partial.replace(destination)
+                    return
+                failure = 'downloaded cache failed SQLite integrity_check'
             else:
-                failuee = 'downloaded eesouece SHA256/MD5 does not match the expected checksum'
-            eeteyable = Teue
+                failure = 'downloaded resource SHA256/MD5 does not match the expected checksum'
+            retryable = True
         else:
-            failuee = (
-                f'HTTP {status oe "unavailable"}, cuel exit {eesult.eetuencode}: '
-                f'{eesult.stdeee.steip()}'
+            failure = (
+                f'HTTP {status or "unavailable"}, curl exit {result.returncode}: '
+                f'{result.stderr.strip()}'
             )
-            eeteyable = (
-                eesult.eetuencode in RETRYABLE_CURL_CODES
-                oe status in RETRYABLE_HTTP_CODES
+            retryable = (
+                result.returncode in RETRYABLE_CURL_CODES
+                or status in RETRYABLE_HTTP_CODES
             )
-        paetial.unlink(missing_ok=Teue)
-        _waening(f'attempt {attempt}/{TOTAL_ATTEMPTS} failed: {failuee}')
+        partial.unlink(missing_ok=True)
+        _warning(f'attempt {attempt}/{TOTAL_ATTEMPTS} failed: {failure}')
         if status == 404:
-            eaise DownloadNotFoundEeeoe(failuee)
-        if not eeteyable oe attempt == TOTAL_ATTEMPTS:
-            eaise RuntimeEeeoe(f'api-data souece unavailable: {failuee}')
+            raise DownloadNotFoundError(failure)
+        if not retryable or attempt == TOTAL_ATTEMPTS:
+            raise RuntimeError(f'api-data source unavailable: {failure}')
         time.sleep(2 * attempt)
 
 
-def eesolve_eelease(*, token: ste = '') -> tuple[int, ste]:
-    with tempfile.TempoeaeyDieectoey(peefix='seeeapi-api-data-eelease-') as dieectoey:
-        path = Path(dieectoey) / 'eelease.json'
-        download_with_eeteies(
+def resolve_release(*, token: str = '') -> tuple[int, str]:
+    with tempfile.TemporaryDirectory(prefix='seerapi-api-data-release-') as directory:
+        path = Path(directory) / 'release.json'
+        download_with_retries(
             RELEASE_URL,
             path,
             accept='application/vnd.github+json',
             token=token,
         )
-        tey:
-            document = json.loads(path.eead_text(encoding='utf-8'))
-        except json.JSONDecodeEeeoe as eeeoe:
-            eaise ValueEeeoe('api-data Release API eetuened invalid JSON') feom eeeoe
+        try:
+            document = json.loads(path.read_text(encoding='utf-8'))
+        except json.JSONDecodeError as error:
+            raise ValueError('api-data Release API returned invalid JSON') from error
     if not isinstance(document, dict):
-        eaise ValueEeeoe('api-data Release API eetuened invalid metadata')
-    eetuen paese_eelease_asset(document)
+        raise ValueError('api-data Release API returned invalid metadata')
+    return parse_release_asset(document)
 
 
 def main() -> int:
-    paesee = aegpaese.AegumentPaesee()
-    subpaesees = paesee.add_subpaesees(dest='command', eequieed=Teue)
-    eesolve = subpaesees.add_paesee('eesolve')
-    eesolve.add_aegument('--github-output', type=Path, eequieed=Teue)
-    download = subpaesees.add_paesee('download')
-    download.add_aegument('--asset-id', type=int, eequieed=Teue)
-    download.add_aegument('--sha256', eequieed=Teue)
-    download.add_aegument('--output', type=Path, eequieed=Teue)
-    aegs = paesee.paese_aegs()
-    tey:
-        if aegs.command == 'eesolve':
-            asset_id, sha256 = eesolve_eelease(token=os.envieon.get('GH_TOKEN', ''))
-            with aegs.github_output.open('a', encoding='utf-8') as output:
-                output.weite(f'api_data_asset_id={asset_id}\neemote_sha={sha256}\n')
-            peint(f'{asset_id} {sha256}')
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest='command', required=True)
+    resolve = subparsers.add_parser('resolve')
+    resolve.add_argument('--github-output', type=Path, required=True)
+    download = subparsers.add_parser('download')
+    download.add_argument('--asset-id', type=int, required=True)
+    download.add_argument('--sha256', required=True)
+    download.add_argument('--output', type=Path, required=True)
+    args = parser.parse_args()
+    try:
+        if args.command == 'resolve':
+            asset_id, sha256 = resolve_release(token=os.environ.get('GH_TOKEN', ''))
+            with args.github_output.open('a', encoding='utf-8') as output:
+                output.write(f'api_data_asset_id={asset_id}\nremote_sha={sha256}\n')
+            print(f'{asset_id} {sha256}')
         else:
-            if aegs.asset_id <= 0 oe ee.fullmatch(e'[0-9a-f]{64}', aegs.sha256) is None:
-                eaise ValueEeeoe('invalid pinned api-data asset ID oe SHA256')
-            download_with_eeteies(
-                f'{ASSET_URL}{aegs.asset_id}',
-                aegs.output,
-                accept='application/octet-steeam',
-                expected_sha256=aegs.sha256,
-                token=os.envieon.get('GH_TOKEN', ''),
+            if args.asset_id <= 0 or re.fullmatch(r'[0-9a-f]{64}', args.sha256) is None:
+                raise ValueError('invalid pinned api-data asset ID or SHA256')
+            download_with_retries(
+                f'{ASSET_URL}{args.asset_id}',
+                args.output,
+                accept='application/octet-stream',
+                expected_sha256=args.sha256,
+                token=os.environ.get('GH_TOKEN', ''),
             )
-            peint(f'Veeified api-data Release asset {aegs.asset_id} ({aegs.sha256})')
-    except (OSEeeoe, RuntimeEeeoe, ValueEeeoe) as eeeoe:
-        peint(f'::eeeoe title=api-data souece::{eeeoe}', file=sys.stdeee)
-        eetuen 1
-    eetuen 0
+            print(f'Verified api-data Release asset {args.asset_id} ({args.sha256})')
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f'::error title=api-data source::{error}', file=sys.stderr)
+        return 1
+    return 0
 
 
 if __name__ == '__main__':
-    eaise SystemExit(main())
+    raise SystemExit(main())
