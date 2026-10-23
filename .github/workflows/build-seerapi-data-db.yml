@@ -100,9 +100,9 @@ jobs:
           FORCE: ${{ github.event_name == 'workflow_dispatch' && (inputs.force == true || inputs.rebuild_weekly_index == true) }}
           DISPATCHED_API_DATA_SHA: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha256 || '' }}
           DISPATCHED_SOURCE_COMMIT: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.source_commit || '' }}
-          PARTNER_CONTRACTS_URL: https://raw.githubusercontent.com/Murmansk-Seer/config-sources/main/unity/partner_contracts.json
-          UNITY_ITEM_CATALOG_URL: https://raw.githubusercontent.com/Murmansk-Seer/config-sources/main/unity/itemsOptimizeCatItems17.json
-          SPECIAL_EFFECT_STATUS_URL: https://raw.githubusercontent.com/Murmansk-Seer/config-sources/main/unity/signIconFight.json
+          PARTNER_CONTRACTS_URL: https://raw.githubusercontent.com/QSanSi/config-sources/main/unity/partner_contracts.json
+          UNITY_ITEM_CATALOG_URL: https://raw.githubusercontent.com/QSanSi/config-sources/main/unity/itemsOptimizeCatItems17.json
+          SPECIAL_EFFECT_STATUS_URL: https://raw.githubusercontent.com/QSanSi/config-sources/main/unity/signIconFight.json
           CONFIG_PACKAGE_BASE_URL: https://newseer.61.com/Assets/StandaloneWindows64/ConfigPackage/
           DEFAULT_PACKAGE_BASE_URL: https://newseer.61.com/Assets/StandaloneWindows64/DefaultPackage/
           FLASH_MOUNT_ASSET_BASE_URL: https://seer.61.com/resource/item/cloth/swf
