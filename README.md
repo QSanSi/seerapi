@@ -1,0 +1,1 @@
+# Generated SeerAPI render assets
